@@ -1,41 +1,21 @@
-from mrcnn.config import Config
-from mrcnn import model as modellib
-from mrcnn import visualize
-import mrcnn
-from mrcnn.utils import Dataset
-from mrcnn import utils
-from mrcnn.model import MaskRCNN
+from mrcnn import model as modellib, visualize, utils, config
 import numpy as np
-from numpy import zeros
-from numpy import asarray
-import colorsys
 import argparse
-import random
-import cv2
-import os
-import time
-from matplotlib import pyplot
-from matplotlib.patches import Rectangle
-from keras.models import load_model
-from os import listdir
-from xml.etree import ElementTree
-from keras.preprocessing.image import load_img
-from keras.preprocessing.image import img_to_array
-import math
-import numpy as np
 import imgaug
+import os
+import statistics
+from xml.etree import ElementTree
 
 
-class myMaskRCNNConfig(Config):
-    # give the configuration a recognizable name
+class myMaskRCNNConfig(config.Config):
+    # Give the configuration a recognizable name
     NAME = "MaskRCNN_config"
 
-    # set the number of GPUs to use along with the number of images
-    # per GPU
+    # Set the number of GPUs to use along with the number of images per GPU
     GPU_COUNT = 1
     IMAGES_PER_GPU = 1
 
-    # number of classes (we would normally add +1 for the background)
+    # Number of classes (we would normally add +1 for the background)
     NUM_CLASSES = 6 + 1
 
     # Number of training steps per epoch
@@ -47,7 +27,7 @@ class myMaskRCNNConfig(Config):
     # Skip detections with < 90% confidence
     DETECTION_MIN_CONFIDENCE = 0.3
 
-    # setting Max ground truth instances
+    # Setting max ground truth instances
     MAX_GT_INSTANCES = 10
 
     # BACKBONE                       resnet101
@@ -71,8 +51,8 @@ class myMaskRCNNConfig(Config):
     IMAGE_SHAPE = [132, 132, 3]
 
     # LEARNING_MOMENTUM              0.9
-    #LEARNING_RATE = 0.003
-    # LOSS_WEIGHTS                   {'rpn_class_loss': 1.0, 'rpn_bbox_loss': 1.0, 'mrcnn_class_loss': 1.0, 'mrcnn_bbox_loss': 1.0, 'mrcnn_mask_loss': 1.0}
+    # LEARNING_RATE = 0.003
+    LOSS_WEIGHTS = {'rpn_class_loss': 1.0, 'rpn_bbox_loss': 1.0, 'mrcnn_class_loss': 1.0, 'mrcnn_bbox_loss': 1.0, 'mrcnn_mask_loss': 0.01}
     # MASK_POOL_SIZE                 14
     # MASK_SHAPE                     [28, 28]
     # MAX_GT_INSTANCES               10
@@ -84,12 +64,12 @@ class myMaskRCNNConfig(Config):
     # NUM_CLASSES                    7
     # POOL_SIZE                      7
 
-    POST_NMS_ROIS_INFERENCE = 10
+    POST_NMS_ROIS_INFERENCE = 10 #100
     POST_NMS_ROIS_TRAINING = 200
 
     PRE_NMS_LIMIT = 600
     # ROI_POSITIVE_RATIO             0.33
-    #RPN_ANCHOR_RATIOS = [1]
+    # RPN_ANCHOR_RATIOS = [1]
 
     RPN_ANCHOR_SCALES = (8, 16, 32, 64, 128)
     # RPN_ANCHOR_STRIDE              1
@@ -103,23 +83,32 @@ class myMaskRCNNConfig(Config):
     TRAIN_ROIS_PER_IMAGE = 66
     USE_MINI_MASK = False
     # USE_RPN_ROIS                   True
-    VALIDATION_STEPS = 50
-# WEIGHT_DECAY                   0.0001
+    VALIDATION_STEPS = 100
+    # WEIGHT_DECAY                   0.0001
 
 
-# define the prediction configuration
-class PredictionConfig(Config):
-    # define the name of the configuration
+# Define the prediction configuration
+class PredictionConfig(config.Config):
+    # Define the name of the configuration
     NAME = "galaxy inference"
-    # number of classes (background + 6 galaxy classes)
+
+    # Number of classes (background + 6 galaxy classes)
     NUM_CLASSES = 6 + 1
-    # simplify GPU config
+
+    # Simplify GPU config
     GPU_COUNT = 1
     IMAGES_PER_GPU = 1
 
+    # Minimum probability value to accept a detected instance
+    # ROIs below this threshold are skipped
+    DETECTION_MIN_CONFIDENCE = 0.0
 
-class GalaxyDataset(Dataset):
-    # load the dataset definitions
+    # Non-maximum suppression threshold for detection
+    DETECTION_NMS_THRESHOLD = 0.0
+
+
+class GalaxyDataset(utils.Dataset):
+    # Load the dataset definitions
     def load_dataset(self, dataset_dir, is_train=True):
 
         # Add classes. We have only one class to add.
@@ -130,33 +119,36 @@ class GalaxyDataset(Dataset):
         self.add_class("dataset", 5, "2_3")
         self.add_class("dataset", 6, "3_3")
 
-        # define data locations for images and annotations
+        # Define data locations for images and annotations
         images_dir = dataset_dir + 'images/'
         annotations_dir = dataset_dir + 'annots/'
 
-        # Iterate through all files in the folder to
-        # add class, images and annotaions
-        for filename in listdir(images_dir):
-            # extract image id
+        # Iterate through all files in the folder to add class, images and annotaions
+        for filename in os.listdir(images_dir):
+            if filename[0] != 'F':
+                continue
+
+            # Extract image id
             image_id = filename[:-4]
 
-            # setting image file
+            # Setting image file
             img_path = images_dir + filename
 
-            # setting annotations file
+            # Setting annotations file
             ann_path = annotations_dir + image_id + '.xml'
 
-            # adding images and annotations to dataset
+            # Adding images and annotations to dataset
             self.add_image('dataset', image_id=image_id, path=img_path, annotation=ann_path)
 
-    # extract bounding boxes from an annotation file
+    # Extract bounding boxes from an annotation file
     def extract_boxes(self, filename):
-
-        # load and parse the file
+        # Load and parse the file
         tree = ElementTree.parse(filename)
-        # get the root of the document
+
+        # Get the root of the document
         root = tree.getroot()
-        # extract each bounding box
+
+        # Extract each bounding box
         boxes = list()
 
         for box in root.findall('.//object'):
@@ -168,33 +160,33 @@ class GalaxyDataset(Dataset):
             coors = [xmin, ymin, xmax, ymax, name]
             boxes.append(coors)
 
-        # extract image dimensions
+        # Extract image dimensions
         width = int(root.find('.//size/width').text)
         height = int(root.find('.//size/height').text)
+
         return boxes, width, height
 
-    # load the masks for an image
-    """Generate instance masks for an image.
-       Returns:
-        masks: A bool array of shape [height, width, instance count] with
-            one mask per instance.
-        class_ids: a 1D array of class IDs of the instance masks.
-     """
-
+    # Load the masks for an image
     def load_mask(self, image_id):
-        # get details of image
+        """
+            Generate instance masks for an image.
+            Returns:
+                masks: A bool array of shape [height, width, instance count] with one mask per instance.
+                class_ids: a 1D array of class IDs of the instance masks.
+        """
+        # Get details of image
         info = self.image_info[image_id]
 
-        # define anntation  file location
+        # Define annotation  file location
         path = info['annotation']
 
-        # load XML
+        # Load XML
         boxes, w, h = self.extract_boxes(path)
 
-        # create one array for all masks, each on a different channel
-        masks = zeros([h, w, len(boxes)], dtype='uint8')
+        # Create one array for all masks, each on a different channel
+        masks = np.zeros([h, w, len(boxes)], dtype='uint8')
 
-        # create masks
+        # Create masks
         class_ids = list()
         for i in range(len(boxes)):
             box = boxes[i]
@@ -202,54 +194,52 @@ class GalaxyDataset(Dataset):
             col_s, col_e = box[0], box[2]
             masks[row_s:row_e, col_s:col_e, i] = 1
             class_ids.append(self.class_names.index(box[4]))
-        return masks, asarray(class_ids, dtype='int32')
-        # load an image reference
+        return masks, np.asarray(class_ids, dtype='int32')
 
-    """Return the path of the image."""
-
+    # Load an image reference
     def image_reference(self, image_id):
+        """Return the path of the image."""
         info = self.image_info[image_id]
         print(info)
         return info['path']
 
 
-# calculate the mAP for a model on a given dataset
+# Calculate the mAP for a model on a given dataset
 def evaluate_model(dataset, model, cfg):
     APs = list()
 
     for image_id in dataset.image_ids:
-        # load image, bounding boxes and masks for the image id
+        # Load image, bounding boxes and masks for the image id
         image, image_meta, gt_class_id, gt_bbox, gt_mask = modellib.load_image_gt(dataset, cfg, image_id,
                                                                                   use_mini_mask=False)
-        # convert pixel values (e.g. center)
+        # Convert pixel values (e.g. center)
         scaled_image = modellib.mold_image(image, cfg)
-        # convert image into one sample
+
+        # Convert image into one sample
         sample = np.expand_dims(scaled_image, 0)
-        # make prediction
+
+        # Make prediction
         yhat = model.detect(sample, verbose=0)
-        # extract results for first sample
+
+        # Extract results for first sample
         r = yhat[0]
-        # calculate statistics, including AP
+
+        # Calculate statistics, including AP
         AP, _, _, _ = utils.compute_ap(gt_bbox, gt_class_id, gt_mask, r["rois"], r["class_ids"], r["scores"],
                                        r['masks'])
-        print(image_id)
-        print(gt_class_id)
-        print(r["class_ids"])
-        # print('image_id = %d class_id = %d detected_class_id = %d' % (image_id, gt_class_id, r["class_ids"]))
-        # store
+
+        # Store
         APs.append(AP)
 
-    # calculate the mean AP across all images
-    mAP = math.mean(APs)
+    # Calculate the mean AP across all images
+    mAP = statistics.mean(APs)
     return mAP
 
 
 if __name__ == '__main__':
-    # get command to decide between train and test
-    import argparse
-
+    # Get command to decide between train and test
     parser = argparse.ArgumentParser(
-        description='Train Mask R-CNN on MS COCO.')
+                        description='Train Mask R-CNN on MS COCO.')
     parser.add_argument("command",
                         metavar="<command>",
                         help="'train' or 'test'")
@@ -262,17 +252,20 @@ if __name__ == '__main__':
     print("Command: ", args.command)
     print("Weights: ", args.weights)
 
-    # configure network
+    # Configure network
+    #if args.command == 'train':
     config = myMaskRCNNConfig()
+    #else:
+    #    config = PredictionConfig()
     config.display()
 
-    # prepare train set
+    # Prepare train set
     train_set = GalaxyDataset()
     train_set.load_dataset('D1_train/', is_train=True)
     train_set.prepare()
     print('Train: %d' % len(train_set.image_ids))
 
-    # prepare test/val set
+    # Prepare test/val set
     test_set = GalaxyDataset()
     test_set.load_dataset('D1_test/', is_train=False)
     test_set.prepare()
@@ -282,36 +275,30 @@ if __name__ == '__main__':
         print("Loading Mask R-CNN model...")
         model = modellib.MaskRCNN(mode="training", config=config, model_dir='./')
 
-        # load the weights
+        # Load the weights
         model.load_weights('../../mask_rcnn_coco.h5',
                            by_name=True,
                            exclude=["mrcnn_class_logits", "mrcnn_bbox_fc", "mrcnn_bbox", "mrcnn_mask"])
 
-        ## train heads with higher lr to speedup the learning
-        # model.train(train_set, test_set, learning_rate=2*config.LEARNING_RATE, epochs=1, layers='heads')
-
-        # horizontal flip
-        #augmentation = imgaug.augmenters.Flipud(0.5)
-        #augmentation = imgaug.augmenters.Noop
+        # Horizontal flip
+        augmentation = imgaug.augmenters.Fliplr(0.5)
 
         # Training - Stage 1
-        print("Training network heads")
+        print("Training network heads...")
         model.train(train_set, test_set,
                     learning_rate=config.LEARNING_RATE,
-                    epochs=40,
-                    layers='heads')
-            # ,
-            #         augmentation=augmentation)
+                    epochs=80,
+                    layers='heads',
+                    augmentation=augmentation)
 
         # Training - Stage 2
-        # Finetune layers from ResNet stage 4 and up
-        print("Fine tune Resnet stage 4 and up")
+        # Fine tune layers from ResNet stage 4 and up
+        print("Fine tune ResNet stage 4 and up")
         model.train(train_set, test_set,
                     learning_rate=config.LEARNING_RATE,
                     epochs=120,
-                    layers='4+')
-            # ,
-            #         augmentation=augmentation)
+                    layers='4+',
+                    augmentation=augmentation)
 
         # Training - Stage 3
         # Fine tune all layers
@@ -319,53 +306,56 @@ if __name__ == '__main__':
         model.train(train_set, test_set,
                     learning_rate=config.LEARNING_RATE / 10,
                     epochs=160,
-                    layers='all')
-            # ,
-            #         augmentation=augmentation)
+                    layers='all',
+                    augmentation=augmentation)
 
         history = model.keras_model.history.history
 
-        # save final weights
-        import time
-        model_path = 'mask_rcnn_' + '.' + str(time.time()) + '.h5'
-        model.keras_model.save_weights(model_path)
+        # Save final weights
+        # import time
+        # model_path = 'mask_rcnn_' + '.' + str(time.time()) + '.h5'
+        # model.keras_model.save_weights(model_path)
     else:
         model = modellib.MaskRCNN(mode="inference", config=config, model_dir='./')
-        model.load_weights(args.weights[1:-1], by_name=True)
+        model.load_weights(args.weights[:], by_name=True)
 
-        # # evaluate model on training dataset
-        # train_mAP = evaluate_model(train_set, model, config)
-        # print("Train mAP: %.3f" % train_mAP)
-        # # evaluate model on test dataset
-        # test_mAP = evaluate_model(test_set, model, config)
-        # print("Test mAP: %.3f" % test_mAP)
+        if 0:
+            # Evaluate model on training dataset
+            train_mAP = evaluate_model(train_set, model, config)
+            print("Train mAP: %.3f" % train_mAP)
+            # Evaluate model on test dataset
+            test_mAP = evaluate_model(test_set, model, config)
+            print("Test mAP: %.3f" % test_mAP)
 
-    if 0:
-        from keras.preprocessing.image import load_img
-        from keras.preprocessing.image import img_to_array
+        if 0:
+            from keras.preprocessing.image import load_img
+            from keras.preprocessing.image import img_to_array
 
-        # Loading the model in the inference mode
-        model = modellib.MaskRCNN(mode="inference", config=config, model_dir='./')
-        # loading the trained weights o the custom dataset
-        model.load_weights(model_path, by_name=True)
-        img = load_img("D4_test/images/FIRSTJ111721.0+342714_infraredctmask.png")
-        img = img_to_array(img)
-        # detecting objects in the image
-        result = model.detect([img])
-        print(result)
+            # Loading the model in the inference mode
+            model = modellib.MaskRCNN(mode="inference", config=config, model_dir='./')
+            # Loading the trained weights o the custom dataset
+            # model.load_weights(model_path, by_name=True)
+            img = load_img("D4_test/images/FIRSTJ111721.0+342714_infraredctmask.png")
+            img = img_to_array(img)
+            # Detecting objects in the image
+            result = model.detect([img])
+            print(result)
 
-    if 1:
-        image_id = 30
-        image, image_meta, gt_class_id, gt_bbox, gt_mask = modellib.load_image_gt(test_set, config, image_id,
-                                                                                  use_mini_mask=False)
-        info = test_set.image_info[image_id]
-        print("image ID: {}.{} ({}) {}".format(info["source"], info["id"], image_id,
-                                               test_set.image_reference(image_id)))
-        # Run object detection
-        results = model.detect([image], verbose=1)
-        # Display results
+        if 1:
+            for image_id in range(0, 100, 3):
+                image, image_meta, gt_class_id, gt_bbox, gt_mask = modellib.load_image_gt(test_set, config, image_id,
+                                                                                          use_mini_mask=False)
+                info = test_set.image_info[image_id]
+                print("image ID: {}.{} ({}) {}".format(info["source"], info["id"], image_id,
+                                                       test_set.image_reference(image_id)))
 
-        r = results[0]
-        visualize.display_instances(image, r['rois'], r['masks'], r['class_ids'],
-                                    test_set.class_names, r['scores'],
-                                    title="Predictions")
+                visualize.display_instances(image, gt_bbox, gt_mask, gt_class_id, test_set.class_names)
+
+                # Run object detection
+                results = model.detect([image], verbose=1)
+
+                # Display results
+                r = results[0]
+                visualize.display_instances(image, r['rois'], r['masks'], r['class_ids'],
+                                            test_set.class_names, r['scores'],
+                                            title="Predictions")
