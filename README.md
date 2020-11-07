@@ -12,9 +12,23 @@ Draft of paper: [Radio Galaxy Morphology Classification with Mask R-CNN](https:/
 * Clone repo
 * Download and unzip images from [here](https://www.dropbox.com/s/jezo3jim08u8hmc/galaxy_data.tar_gz?dl=0)
 
-# Results
+# Dataset
+The top image below is an original flux density image obtained from the open databased maintained by Space Telescope Science Institute (third.ucllnl.org) with linear scaling while the bottom image shows the derived image with log scaling as used in CLARAN and this paper.
 
-![](a.png)
+![](images/Figure2.JPG)
+
+![](images/Figure3.JPG)
+
+# Results
+Annotated Radio Galaxy images with bounding boxes used for training Mask R-CNN.
+
+Upper left 1C_1P, upper right 1C_2P, lower left 2C_2P and lower right 3C_3P 
+
+![](images/Figure6.JPG)
+
+Classification results with Mask-RCNN for the above images.
+
+![](images/Figure7.JPG)
 
 
 
