@@ -3,9 +3,11 @@
 This is an application of [Mask R-CNN](https://arxiv.org/abs/1703.06870) to Radio Galaxy Morphology Classification using data from [Radio Galaxy Zoo: ClaRAN - A Deep Learning Classifier for Radio Morphologies](https://github.com/chenwuperth/rgz_rcnn).
 
 # Paper
-Accepted to be presented at and published in the proceedings of [2020 2nd International Workshop on Signal Processing and Machine Learning (WSPML 2020)](http://www.wspml.org/), November 20-22, 2020
+Presented at the [2020 2nd International Workshop on Signal Processing and Machine Learning (WSPML 2020)](http://www.wspml.org/), November 20-22, 2020.
 
-Draft of paper: [Radio Galaxy Morphology Classification with Mask R-CNN](https://www.dropbox.com/s/s0r2pjvq9bkk8d9/Radio%20Galaxy%20Morphology%20Classification%20Arslan.pdf?dl=0)
+Published in the proceeedings of the 2020 4th International Conference on Vision, Image, and Signal Processing, ICVISP 2020.
+
+Paper: [Radio Galaxy Morphology Classification with Mask R-CNN](https://dl.acm.org/doi/abs/10.1145/3448823.3448881)
 
 # Installation
 
